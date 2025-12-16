@@ -11,6 +11,14 @@ import schemas
 import models
 import db
 
+# --- Compatibility Patch for passlib + bcrypt 4.x ---
+# Passlib < 1.7.5 issues with bcrypt >= 4.0
+import bcrypt
+if not hasattr(bcrypt, '__about__'):
+    class About:
+        __version__ = bcrypt.__version__
+    bcrypt.__about__ = About()
+
 # --- Security & CRUD Utilities ---
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=config.TOKEN_URL)
@@ -207,5 +215,4 @@ async def student_schedule_access(current_user: Annotated[models.User, Depends(g
     if current_user.role == "Student":
         return {"message": f"Welcome, Student {current_user.email}! Here is your personalized academic schedule and hall ticket status."}
     else:
-
         return {"message": f"Welcome, {current_user.role} {current_user.email}! This is the student view."}
