@@ -14,10 +14,13 @@ import db
 # --- Compatibility Patch for passlib + bcrypt 4.x ---
 # Passlib < 1.7.5 issues with bcrypt >= 4.0
 import bcrypt
-if not hasattr(bcrypt, '__about__'):
-    class About:
-        __version__ = bcrypt.__version__
-    bcrypt.__about__ = About()
+try:
+    if not hasattr(bcrypt, '__about__'):
+        class About:
+            __version__ = bcrypt.__version__
+        bcrypt.__about__ = About()
+except ImportError:
+    pass
 
 # --- Security & CRUD Utilities ---
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
