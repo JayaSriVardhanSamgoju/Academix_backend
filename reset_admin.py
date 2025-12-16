@@ -14,7 +14,7 @@ except ImportError:
     pass
 
 # Setup password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt","argon2"], deprecated="auto")
 
 def get_password_hash(password):
     return pwd_context.hash(password)
@@ -125,3 +125,4 @@ def reset_admin():
 
 if __name__ == "__main__":
     reset_admin()
+
