@@ -24,11 +24,12 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=config.TOKEN_URL)
 
 def get_password_hash(password: str) -> str:
-    """Hashes a plain password using argon2."""
+    """Hashes a plain password using bcrypt."""
     return pwd_context.hash(password)
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifies a plain password against a hashed one."""
+    # This is the line that failed in the logs due to a bad hash format.
     return pwd_context.verify(plain_password, hashed_password)
 
 def create_access_token(data: dict) -> str:
@@ -125,6 +126,10 @@ def get_current_active_club_coordinator(current_user: Annotated[models.User, Dep
     """Dependency: Enforces 'Club Coordinator' role."""
     return get_current_active_role(current_user, "Club Coordinator")
 
+def get_current_active_student(current_user: Annotated[models.User, Depends(get_current_active_user)]) -> models.User:
+    """Dependency: Enforces 'Student' role."""
+    return get_current_active_role(current_user, "Student")
+
 
 # --- API Router Definition ---
 
@@ -134,31 +139,28 @@ auth_router = APIRouter(prefix="/auth", tags=["Auth & Users"])
 
 @auth_router.post("/register", response_model=schemas.UserRead, status_code=status.HTTP_201_CREATED)
 def register_user(user: schemas.UserCreate, db_session: Annotated[Session, Depends(db.get_db)]):
-    """Creates a new user account (default role: Student)."""
+    """Creates a new user account (role is strictly set to Student for public registration)."""
     db_user = get_user_by_email(db_session, email=user.email)
     if db_user:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
     
-    # Force self-registered users to "Student" unless specific role creation logic is added later
-    if user.role not in config.ROLES:
-        user.role = "Student" 
-    elif user.role != "Student":
-        # Note: In a production app, you would restrict Admin/Manager/Coordinator creation to existing Admins
-        print(f"INFO: Allowing self-registration for non-student role: {user.role}. RESTRICT THIS LATER.")
-
+    # SECURITY FIX: Forcing role to "Student" for all public registrations 
+    # to prevent privilege escalation attempts, regardless of what role was submitted.
+    user.role = "Student" 
+    
     # Create the user
     created_user = create_db_user(db_session=db_session, user=user)
     
     # Automatically create a student profile if the role is "Student"
     if created_user.role == "Student":
         # Generate a temporary roll number based on user ID
-        # You can modify this logic to use a different pattern
         temp_roll_number = f"STU{created_user.id:05d}"
         
         student = models.Student(
             user_id=created_user.id,
             roll_number=temp_roll_number,
-            program="Not Set",
+            # Note: Program and branch/year data need proper assignment outside of this router
+            program="Not Set", 
             year=1
         )
         db_session.add(student)
@@ -210,9 +212,6 @@ async def club_coordinator_submission_access(current_user: Annotated[models.User
     return {"message": f"Welcome, Club Coordinator {current_user.email}! You can submit event proposals for approval."}
 
 @auth_router.get("/student/schedule")
-async def student_schedule_access(current_user: Annotated[models.User, Depends(get_current_active_user)]):
-    """Endpoint accessible by all active users, but primarily for 'Student' data."""
-    if current_user.role == "Student":
-        return {"message": f"Welcome, Student {current_user.email}! Here is your personalized academic schedule and hall ticket status."}
-    else:
-        return {"message": f"Welcome, {current_user.role} {current_user.email}! This is the student view."}
+async def student_schedule_access(current_user: Annotated[models.User, Depends(get_current_active_student)]):
+    """Endpoint only accessible by 'Student' role users."""
+    return {"message": f"Welcome, Student {current_user.email}! Here is your personalized academic schedule and hall ticket status."}
