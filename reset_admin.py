@@ -5,10 +5,13 @@ from passlib.context import CryptContext
 
 # --- Compatibility Patch for passlib + bcrypt 4.x ---
 import bcrypt
-if not hasattr(bcrypt, '__about__'):
-    class About:
-        __version__ = bcrypt.__version__
-    bcrypt.__about__ = About()
+try:
+    if not hasattr(bcrypt, '__about__'):
+        class About:
+            __version__ = bcrypt.__version__
+        bcrypt.__about__ = About()
+except ImportError:
+    pass
 
 # Setup password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
