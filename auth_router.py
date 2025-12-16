@@ -23,7 +23,7 @@ except ImportError:
     pass
 
 # --- Security & CRUD Utilities ---
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt","argon2"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=config.TOKEN_URL)
 
 def get_password_hash(password: str) -> str:
@@ -218,3 +218,4 @@ async def club_coordinator_submission_access(current_user: Annotated[models.User
 async def student_schedule_access(current_user: Annotated[models.User, Depends(get_current_active_student)]):
     """Endpoint only accessible by 'Student' role users."""
     return {"message": f"Welcome, Student {current_user.email}! Here is your personalized academic schedule and hall ticket status."}
+
