@@ -244,7 +244,7 @@ class ExamRead(BaseModel):
     seatsAssigned: bool
     status: str
     faculty_id: Optional[int] = None
-    faculty: Optional[Any] = None # Using Any to avoid circularity if FacultyRead isn't ready
+    faculty: Optional["FacultyRead"] = None
 
     class Config:
         from_attributes = True
@@ -486,3 +486,4 @@ class PromotionCheckResponse(BaseModel):
     current_status: str
     action_taken: str
     remarks: str
+
