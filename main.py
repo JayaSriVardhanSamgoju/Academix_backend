@@ -27,6 +27,7 @@ app = FastAPI(
 # Modern browsers block "*" when allow_credentials=True.
 # We explicitly allow the default Vite dev server port.
 origins = [
+    "*",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
@@ -80,4 +81,5 @@ app.include_router(timetable.router, prefix="/api")
 
 @app.get("/", tags=["Root"])
 def read_root():
+
     return {"message": "ACADEMIX AI Backend is running. Access docs at /docs"}
