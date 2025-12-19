@@ -149,6 +149,22 @@ def get_event_details(
         del event_dict["_sa_instance_state"]
         
     event_dict["club_name"] = club.name if club else "Unknown Club"
+    
+    # Check for conflicts with Exams
+    from sqlalchemy import func
+    conflicting_exams = db.query(Exams).filter(
+        func.date(Exams.exam_date) == event.start_datetime.date()
+    ).all()
+    
+    event_dict["conflicting_exams"] = [
+        {
+            "id": e.id, 
+            "title": e.title, 
+            "course": e.course.code if e.course else "",
+            "time": e.start_time.strftime("%I:%M %p")
+        } for e in conflicting_exams
+    ]
+
     return event_dict
 
 @router.put("/events/{event_id}/status")
