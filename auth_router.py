@@ -177,26 +177,12 @@ async def login_for_access_token(
     db_session: Annotated[Session, Depends(db.get_db)]
 ):
     """Handles user login and returns a JWT access token."""
-    # user = authenticate_user(db_session, email=form_data.username, password=form_data.password)
-    # Debug breakdown
-    user = get_user_by_email(db_session, email=form_data.username)
+    user = authenticate_user(db_session, email=form_data.username, password=form_data.password)
+    
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"DEBUG: User '{form_data.username}' not found in database.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, 
-            detail="DEBUG: User is inactive"
-        )
-
-    if not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="DEBUG: Password verification failed (Hash mismatch).",
+            detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
