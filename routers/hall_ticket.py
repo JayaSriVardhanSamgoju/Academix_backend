@@ -457,3 +457,67 @@ def get_all_hall_tickets(
         })
 
     return results
+
+@router.get("/exam/{exam_id}/report")
+def get_exam_hall_ticket_report(
+    exam_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth_router.get_current_active_user)
+):
+    """
+    Generates a CSV report of all students for a specific exam and their 
+    hall ticket dispatch status (Allocated vs Dispatched).
+    """
+    import csv
+    import io
+
+    if current_user.role not in ["Admin", "Seating Manager"]:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
+    # 1. Fetch all students for this exam
+    students = db.query(models.Student).join(models.ExamStudent).filter(models.ExamStudent.exam_id == exam_id).all()
+    
+    # 2. Get Allocations for mapping
+    allocations = db.query(models.SeatAllocation).filter(models.SeatAllocation.exam_id == exam_id).all()
+    alloc_map = {a.student_id: a for a in allocations}
+
+    # 3. Create CSV in memory
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=["Roll Number", "Name", "Branch", "Seat", "Room", "File Released", "Status"])
+    writer.writeheader()
+
+    exam_dir = STORAGE_BASE / str(exam_id)
+
+    for student in students:
+        alloc = alloc_map.get(student.id)
+        
+        # Check if file exists in storage
+        file_path = exam_dir / f"{student.roll_number}.pdf"
+        file_exists = file_path.exists()
+        
+        status = "PENDING"
+        if alloc and file_exists:
+            status = "DELIVERED"
+        elif alloc and not file_exists:
+            status = "MISSING_FILE"
+        elif not alloc:
+            status = "NO_ALLOCATION"
+
+        writer.writerow({
+            "Roll Number": student.roll_number,
+            "Name": student.user.name if student.user else "N/A",
+            "Branch": student.branch.name if student.branch else "N/A",
+            "Seat": alloc.seat.seat_label if (alloc and alloc.seat) else "-",
+            "Room": alloc.room.name if (alloc and alloc.room) else "-",
+            "File Released": "YES" if file_exists else "NO",
+            "Status": status
+        })
+
+    # Prepare response
+    output.seek(0)
+    filename = f"HallTicketReport_Exam_{exam_id}.csv"
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode()),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
