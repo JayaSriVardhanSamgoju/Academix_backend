@@ -11,6 +11,7 @@ import json
 from pydantic import BaseModel
 from models import ClubEvent, Club, Notification, Exams
 import requests
+import config
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -292,8 +293,8 @@ def assign_course_to_faculty(
                 "subject_name": sub_name,
                 "students": students # List of {name, email, roll_number}
             }
-            # requests.post("http://127.0.0.1:8001/api/v1/notify/faculty-assignment", json=notify_payload, timeout=5)
-            requests.post("https://mail-service-flax.vercel.app/api/v1/notify/faculty-assignment", json=notify_payload, timeout=5)
+            # requests.post(f"{config.MAIL_SERVICE_URL}/api/v1/notify/faculty-assignment", json=notify_payload, timeout=5)
+            requests.post(f"{config.MAIL_SERVICE_URL}/api/v1/notify/faculty-assignment", json=notify_payload, timeout=5)
         except Exception as e:
             print(f"Notification Service error: {e}")
 
