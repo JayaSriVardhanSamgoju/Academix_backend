@@ -1,11 +1,12 @@
-
-from fastapi import APIRouter, Depends, HTTPException, status, Body
+import models, schemas
+import auth_router
+import requests
+import config
+from fastapi import APIRouter, Depends, HTTPException, status, Body, BackgroundTasks
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Annotated
 from datetime import datetime
 from db import SessionLocal
-import models, schemas
-import auth_router
 
 router = APIRouter(prefix="/exams", tags=["exams"])
 
@@ -159,6 +160,43 @@ def release_hall_tickets(
     exam.status = "HALL_TICKETS_RELEASED"
     db.commit()
     return {"message": "Hall tickets released successfully", "count": alloc_count}
+
+@router.post("/{exam_id}/release-results")
+def release_results(
+    exam_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth_router.get_current_active_user)
+):
+    """Marks an exam as results released and notifies students."""
+    exam = db.query(models.Exams).filter(models.Exams.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+    
+    exam.status = "RESULTS_RELEASED"
+    db.commit()
+
+    # Trigger Notifications
+    def notify_results(exam_obj):
+        try:
+            # Fetch all students in this exam
+            students = db.query(models.User).join(models.Student).join(models.ExamStudent).filter(
+                models.ExamStudent.exam_id == exam_obj.id
+            ).all()
+            
+            student_list = [{"email": s.email, "id": str(s.id)} for s in students if s.email]
+            
+            if student_list:
+                payload = {
+                    "exam_name": exam_obj.title or exam_obj.exam_type,
+                    "student_list": student_list
+                }
+                requests.post(f"{config.MAIL_SERVICE_URL}/api/v1/notify/results-release", json=payload, timeout=10)
+        except Exception as e:
+            print(f"Results release notification error: {e}")
+
+    background_tasks.add_task(notify_results, exam)
+    return {"message": "Results released successfully"}
 
 @router.get("/student/me")
 def get_student_upcoming_exams(
