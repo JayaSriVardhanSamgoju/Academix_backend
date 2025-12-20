@@ -7,6 +7,7 @@ from schemas import ClubEventCreate, ClubEventRead, UserRead
 from auth_router import get_current_user
 import json
 import requests
+import config
 
 router = APIRouter()
 
@@ -237,8 +238,8 @@ def update_event(
 
 def trigger_event_notification(event_name: str, update_type: str, details: str, recipients: List[str]):
     """Calls the Communication Service."""
-    #COMM_SERVICE_URL = "http://127.0.0.1:8001/api/v1/notify/event-update"
-    COMM_SERVICE_URL = "https://mail-service-flax.vercel.app/api/v1/notify/event-update"
+    #COMM_SERVICE_URL = f"{config.MAIL_SERVICE_URL}/api/v1/notify/event-update"
+    COMM_SERVICE_URL = f"{config.MAIL_SERVICE_URL}/api/v1/notify/event-update"
     payload = {
         "event_name": event_name,
         "update_type": update_type,
