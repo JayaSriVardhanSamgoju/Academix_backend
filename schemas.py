@@ -21,6 +21,7 @@ class UserRead(UserBase):
     name: Optional[str] = None
     phone: Optional[str] = None
     is_active: bool
+    faculty_type: Optional[str] = None # "TEACHING" or "NON_TEACHING" (computed)
 
     class Config:
         from_attributes = True
@@ -486,4 +487,3 @@ class PromotionCheckResponse(BaseModel):
     current_status: str
     action_taken: str
     remarks: str
-
