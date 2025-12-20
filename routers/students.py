@@ -6,6 +6,7 @@ from typing import List, Optional, Annotated
 from db import SessionLocal
 import models, schemas
 import auth_router
+import config
 
 router = APIRouter(prefix="/students", tags=["students"])
 
@@ -316,7 +317,7 @@ def update_student(
                                 "reason": "Academic Performance / Attendance Shortage"
                             }
                             print(f"DEBUG: Sending POST to notification service: {payload}")
-                            resp = requests.post("http://localhost:8001/api/v1/notify/student-detention", json=payload, timeout=10)
+                            resp = requests.post(f"{config.MAIL_SERVICE_URL}/api/v1/notify/student-detention", json=payload, timeout=10)
                             print(f"DEBUG: Notification service response: {resp.status_code} - {resp.text}")
                         except Exception as e:
                             print(f"CRITICAL ERROR in detention alert background task: {e}")
@@ -332,14 +333,14 @@ def update_student(
             if student.user and student.user.email:
                 def send_shortage_alert(sid, sname, semail):
                     try:
-                        payload = {
-                            "student_id": str(sid),
-                            "student_name": sname,
-                            "student_email": semail,
-                            "current_credits": 0, # Could pass actuals if available
-                            "required_credits": 18.0
-                        }
-                        requests.post("http://localhost:8001/api/v1/notify/student-credit-shortage", json=payload, timeout=5)
+                            payload = {
+                                "student_id": str(sid),
+                                "student_name": sname,
+                                "student_email": semail,
+                                "current_credits": 0, # Could pass actuals if available
+                                "required_credits": 18.0
+                            }
+                            requests.post(f"{config.MAIL_SERVICE_URL}/api/v1/notify/student-credit-shortage", json=payload, timeout=5)
                     except Exception: pass
                 background_tasks.add_task(send_shortage_alert, student.id, student.user.name, student.user.email)
 
@@ -394,7 +395,7 @@ def check_promotion_eligibility(
                             "current_credits": float(cur),
                             "required_credits": float(req_val)
                         }
-                        requests.post("http://localhost:8001/api/v1/notify/student-credit-shortage", json=payload, timeout=5)
+                        requests.post(f"{config.MAIL_SERVICE_URL}/api/v1/notify/student-credit-shortage", json=payload, timeout=5)
                     except Exception: pass
                 background_tasks.add_task(send_auto_shortage_alert, student.id, student.user.name, student.user.email, earned_credits, CREDIT_THRESHOLD)
 
