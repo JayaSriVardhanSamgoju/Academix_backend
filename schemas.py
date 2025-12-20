@@ -294,9 +294,16 @@ class SeatAllocationRead(BaseModel):
     manual_override: bool
     room: Optional["RoomRead"] = None
     seat: Optional["RoomSeatRead"] = None
+    student: Optional["StudentRead"] = None
     
     class Config:
         from_attributes = True
+
+# Explicitly update forward refs for models that have nested self-referencing or cyclic dependencies
+StudentRead.model_rebuild()
+CourseRead.model_rebuild()
+ExamRead.model_rebuild()
+SeatAllocationRead.model_rebuild()
 
 # --- Club Events ---
 
