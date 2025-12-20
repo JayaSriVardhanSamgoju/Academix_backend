@@ -1,16 +1,21 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Response, BackgroundTasks, File, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 from typing import Annotated, List, Dict, Any
 from pydantic import BaseModel, Field
 import uuid
+import os
 from datetime import datetime
+from pathlib import Path
 
 from db import get_db
 import models
 import auth_router
 from utils.qr_utils import generate_qr_image_and_payload
 from utils.pdf_utils import generate_hall_ticket_buffer
+
+STORAGE_BASE = Path("storage/hall_tickets")
+STORAGE_BASE.mkdir(parents=True, exist_ok=True)
 
 router = APIRouter(prefix="/hall-tickets", tags=["hall-tickets"])
 
@@ -137,6 +142,99 @@ async def retrigger_failed_dispatch(
         "status": "RETRY_STARTED",
         "retrying_count": len(to_retry),
         "message": f"Attempting to fix {len(to_retry)} failed tickets."
+    }
+
+@router.post("/bulk-upload")
+async def bulk_upload_hall_tickets(
+    exam_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth_router.get_current_active_user)
+):
+    """
+    Administrator uploads a ZIP of hall tickets.
+    Matches filenames (e.g. 21CSE001.pdf) to Roll Numbers.
+    """
+    import zipfile
+    import io
+    import re
+
+    if current_user.role not in ["Admin", "Seating Manager"]:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
+    if not file.filename.endswith('.zip'):
+        raise HTTPException(status_code=400, detail="Please upload a .zip file")
+
+    batch_id = f"UPLOAD_{datetime.now().strftime('%Y%m%d')}_{uuid.uuid4().hex[:4].upper()}"
+    
+    report = {
+        "batch_id": batch_id,
+        "exam_id": exam_id,
+        "summary": {"total_files": 0, "success_count": 0, "failure_count": 0},
+        "details": [],
+        "branch_wise": {}
+    }
+
+    try:
+        content = await file.read()
+        z = zipfile.ZipFile(io.BytesIO(content))
+        
+        for filename in z.namelist():
+            if filename.endswith('/') or '__MACOSX' in filename: continue
+            
+            report["summary"]["total_files"] += 1
+            
+            # Extract Roll Number (e.g. 21CSE001_HT.pdf -> 21CSE001)
+            # Remove extension and take the first part before underscore or match pattern
+            clean_name = os.path.basename(filename)
+            roll_match = re.search(r'([0-9A-Z]+)', clean_name)
+            roll_no = roll_match.group(1) if roll_match else clean_name.split('.')[0]
+            
+            # Find student and branch
+            student = db.query(models.Student).options(joinedload(models.Student.branch)).filter(models.Student.roll_number == roll_no).first()
+            branch_name = student.branch.name if (student and student.branch) else "Unknown"
+            
+            if branch_name not in report["branch_wise"]:
+                report["branch_wise"][branch_name] = {"success": 0, "failure": 0}
+
+            try:
+                if not student:
+                    raise ValueError(f"Student with roll number {roll_no} not found in database")
+                
+                # Copy file to storage
+                target_path = STORAGE_BASE / str(exam_id) / f"{roll_no}.pdf"
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                
+                with open(target_path, "wb") as f:
+                    f.write(z.read(filename))
+                
+                report["summary"]["success_count"] += 1
+                report["branch_wise"][branch_name]["success"] += 1
+                report["details"].append({"roll": roll_no, "branch": branch_name, "status": "SUCCESS", "error": None})
+                
+            except Exception as e:
+                report["summary"]["failure_count"] += 1
+                report["branch_wise"][branch_name]["failure"] += 1
+                report["details"].append({"roll": roll_no, "branch": branch_name, "status": "FAILED", "error": str(e)})
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"ZIP Processing Error: {str(e)}")
+
+    DISPATCH_REPORTS[batch_id] = report
+    
+    # Format for frontend
+    formatted_branch_report = [
+        {"branch_name": b, "success_count": s["success"], "failure_count": s["failure"]}
+        for b, s in report["branch_wise"].items()
+    ]
+
+    return {
+        "batch_id": batch_id,
+        "total_processed": report["summary"]["total_files"],
+        "overall_success": report["summary"]["success_count"],
+        "overall_failure": report["summary"]["failure_count"],
+        "branch_wise_report": formatted_branch_report,
+        "details": report["details"]
     }
 
 @router.get("/dispatch/{batch_id}/report")
