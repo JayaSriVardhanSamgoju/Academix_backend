@@ -93,13 +93,18 @@ class ProgramReadWithBranches(ProgramRead):
     branches: List[BranchReadBasic] = []
 
 
-class StudentRead(StudentBase):
+class StudentReadSimple(StudentBase):
     id: int
     user: Optional[UserRead] = None
     # Use full BranchRead which includes Program
     branch: Optional[BranchRead] = None
     enrolled_courses: int = 0
     academic_status: Optional[str] = "PROMOTED"
+
+    class Config:
+        from_attributes = True
+
+class StudentRead(StudentReadSimple):
     enrollments: List["CourseEnrollmentRead"] = [] # List of actual enrollments
     seat_allocations: List["SeatAllocationRead"] = [] # Allocations
 
@@ -294,7 +299,7 @@ class SeatAllocationRead(BaseModel):
     manual_override: bool
     room: Optional["RoomRead"] = None
     seat: Optional["RoomSeatRead"] = None
-    student: Optional["StudentRead"] = None
+    student: Optional["StudentReadSimple"] = None
     
     class Config:
         from_attributes = True
@@ -494,6 +499,7 @@ class PromotionCheckResponse(BaseModel):
     remarks: str
 
 # Explicitly update forward refs at the end of file
+StudentReadSimple.model_rebuild()
 StudentRead.model_rebuild()
 CourseRead.model_rebuild()
 ExamRead.model_rebuild()
