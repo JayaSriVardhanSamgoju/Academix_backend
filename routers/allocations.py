@@ -34,6 +34,8 @@ def get_allocations(
     return db.query(models.SeatAllocation).filter(
         models.SeatAllocation.exam_id == exam_id,
         models.SeatAllocation.room_id == room_id
+    ).options(
+        joinedload(models.SeatAllocation.student).joinedload(models.Student.user)
     ).all()
 
 @router.post("/", response_model=schemas.SeatAllocationRead)
