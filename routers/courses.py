@@ -10,6 +10,7 @@ import db
 import models
 import schemas
 import auth_router
+import config
 
 router = APIRouter(prefix="/courses", tags=["courses"])
 
@@ -25,7 +26,7 @@ def get_db():
 # --- CRUD ---
 
 @router.post("/", response_model=schemas.CourseRead, status_code=status.HTTP_201_CREATED)
-def create_course(course_in: schemas.CourseCreate, db_session: Session = Depends(get_db)):
+def create_course(course_in: schemas.CourseCreate, background_tasks: BackgroundTasks, db_session: Session = Depends(get_db)):
     existing = db_session.query(models.Course).filter(models.Course.code == course_in.code).first()
     if existing:
         raise HTTPException(status_code=400, detail="Course code already exists")
@@ -50,6 +51,31 @@ def create_course(course_in: schemas.CourseCreate, db_session: Session = Depends
     db_session.add(course)
     db_session.commit()
     db_session.refresh(course)
+
+    # --- Notify Students of New Course ---
+    def notify_students_of_new_course(course_obj):
+        try:
+            # Fetch students in the relevant branch and semester
+            students_query = db_session.query(models.User.email).join(models.Student).filter(
+                models.Student.branch_id == course_obj.branch_id
+            )
+            if course_obj.semester:
+                students_query = students_query.filter(models.Student.current_semester == course_obj.semester)
+            
+            student_emails = [email[0] for email in students_query.all() if email[0]]
+            
+            if student_emails:
+                notify_payload = {
+                    "course_name": course_obj.title,
+                    "semester": f"Semester {course_obj.semester}" if course_obj.semester else "New Semester",
+                    "student_emails": student_emails
+                }
+                requests.post(f"{config.MAIL_SERVICE_URL}/api/v1/notify/course-creation", json=notify_payload, timeout=10)
+        except Exception as e:
+            print(f"Course creation notification error: {e}")
+
+    background_tasks.add_task(notify_students_of_new_course, course)
+
     return course
 
 @router.get("/", response_model=List[schemas.CourseRead])
@@ -291,8 +317,8 @@ def enroll_student(course_id: int, payload: schemas.CourseEnrollmentCreate, back
                 "faculty_id": faculty_info["id"],
                 "faculty_email": faculty_info["email"]
             }
-            # requests.post("http://127.0.0.1:8001/api/v1/notify/student-enrollment", json=notify_payload, timeout=5)
-            requests.post("https://mail-service-flax.vercel.app/api/v1/notify/student-enrollment", json=notify_payload, timeout=5)
+            # requests.post(f"{config.MAIL_SERVICE_URL}/api/v1/notify/student-enrollment", json=notify_payload, timeout=5)
+            requests.post(f"{config.MAIL_SERVICE_URL}/api/v1/notify/student-enrollment", json=notify_payload, timeout=5)
         except Exception as e:
             print(f"Notification error: {e}")
 
