@@ -177,11 +177,26 @@ async def login_for_access_token(
     db_session: Annotated[Session, Depends(db.get_db)]
 ):
     """Handles user login and returns a JWT access token."""
-    user = authenticate_user(db_session, email=form_data.username, password=form_data.password)
+    # user = authenticate_user(db_session, email=form_data.username, password=form_data.password)
+    # Debug breakdown
+    user = get_user_by_email(db_session, email=form_data.username)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
+            detail=f"DEBUG: User '{form_data.username}' not found in database.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="DEBUG: User is inactive"
+        )
+
+    if not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="DEBUG: Password verification failed (Hash mismatch).",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
@@ -193,9 +208,19 @@ async def login_for_access_token(
 # --- General Protected Route (All Active Roles) ---
 
 @auth_router.get("/users/me", response_model=schemas.UserRead)
-async def read_users_me(current_user: Annotated[models.User, Depends(get_current_active_user)]):
-    """Returns the current authenticated user's information. Accessible by ALL active users."""
-    return current_user
+async def read_users_me(current_user: Annotated[models.User, Depends(get_current_active_user)], db_session: Session = Depends(db.get_db)):
+    """Returns the current user. Injects faculty_type if applicable."""
+    # Create a copy or dict to avoid mutating the ORM object directly if session is active
+    user_dict = schemas.UserRead.model_validate(current_user).model_dump()
+    
+    if current_user.role == "Faculty":
+        # Check for linked faculty profile
+        # Use simple query to avoid relationship loading issues if not eager loaded
+        fac = db_session.query(models.Faculty).filter(models.Faculty.user_id == current_user.id).first()
+        if fac:
+            user_dict["faculty_type"] = fac.faculty_type
+
+    return user_dict
 
 # --- Role-Specific Protected Routes (Demonstration) ---
 
