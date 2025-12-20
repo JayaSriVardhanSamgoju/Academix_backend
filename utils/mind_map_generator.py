@@ -30,6 +30,9 @@ class MindMapNode:
     def __init__(self, content):
         self.content = content
         self.children = []
+        # Automatically generate a Google Search link for this concept
+        self.link = f"https://www.google.com/search?q={content.replace(' ', '+')}+study+material"
+        self.youtube_link = f"https://www.youtube.com/results?search_query={content.replace(' ', '+')}+tutorial"
 
 def preprocess_text(text):
     sentences = sent_tokenize(text)
@@ -143,6 +146,8 @@ def build_mind_map(text, depth=2):
 def mind_map_to_dict(node):
     return {
         "name": node.content,
+        "link": getattr(node, 'link', ''),
+        "youtube_link": getattr(node, 'youtube_link', ''),
         "children": [mind_map_to_dict(child) for child in node.children]
     }
 
