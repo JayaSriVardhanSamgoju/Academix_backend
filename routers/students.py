@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, File, UploadFile
 import requests
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional, Annotated
@@ -349,6 +349,126 @@ def update_student(
     db.commit()
     db.refresh(student)
     return student
+
+@router.post("/bulk-import", response_model=schemas.StudentBulkImportResponse)
+def bulk_import_students(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth_router.get_current_active_user)
+):
+    """
+    Bulk import students from CSV.
+    Returns a detailed branch-wise report and fails list.
+    """
+    if current_user.role != "Admin":
+         raise HTTPException(status_code=403, detail="Only admins can perform bulk imports")
+
+    import csv
+    import io
+
+    try:
+        content = file.file.read().decode("utf-8")
+        csv_reader = csv.DictReader(io.StringIO(content))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read CSV: {e}")
+    
+    results = []
+    branch_summaries = {}
+    total = 0
+    success = 0
+    failure = 0
+    failed_rolls = []
+
+    for i, row in enumerate(csv_reader, 1):
+        total += 1
+        row_errors = []
+        
+        # Priority mapping for different CSV headers
+        roll_no = row.get("roll_no") or row.get("roll_number") or row.get("Roll No")
+        name = row.get("name") or row.get("Name")
+        email = row.get("email") or row.get("Email")
+        branch_name = row.get("branch") or row.get("program") or row.get("Program") or row.get("Branch") or "General"
+        year = row.get("year") or row.get("Year")
+        
+        if not roll_no: row_errors.append("Missing roll number")
+        if not name: row_errors.append("Missing name")
+        if not email: row_errors.append("Missing email")
+        
+        # Check if already exists in DB
+        if roll_no:
+            existing = db.query(models.Student).filter(models.Student.roll_number == roll_no).first()
+            if existing: row_errors.append("Duplicate roll number")
+        
+        if row_errors:
+            failure += 1
+            if roll_no: failed_rolls.append(roll_no)
+            results.append(schemas.StudentImportRowResult(
+                row=i, roll_number=roll_no or "N/A", name=name or "N/A", branch=branch_name, status="failure", errors=row_errors
+            ))
+            summary = branch_summaries.get(branch_name, {"success": 0, "failure": 0})
+            summary["failure"] += 1
+            branch_summaries[branch_name] = summary
+            continue
+
+        # Find Branch
+        branch_obj = db.query(models.Branch).filter(models.Branch.name.ilike(f"%{branch_name}%")).first()
+        if not branch_obj:
+            branch_obj = db.query(models.Branch).filter(models.Branch.code.ilike(f"%{branch_name}%")).first()
+
+        try:
+            # Create User
+            new_user = models.User(
+                email=email,
+                hashed_password=auth_router.get_password_hash("Welcome@123"),
+                name=name,
+                role="Student"
+            )
+            db.add(new_user)
+            db.flush()
+
+            # Create Student
+            new_student = models.Student(
+                user_id=new_user.id,
+                roll_number=roll_no,
+                branch_id=branch_obj.id if branch_obj else None,
+                year=int(year) if year and str(year).isdigit() else 1,
+                current_semester= ( (int(year) if year and str(year).isdigit() else 1) * 2 ) - 1 # Default to odd sem
+            )
+            db.add(new_student)
+            db.commit()
+            
+            success += 1
+            results.append(schemas.StudentImportRowResult(
+                row=i, roll_number=roll_no, name=name, branch=branch_name, status="success", errors=[]
+            ))
+            summary = branch_summaries.get(branch_name, {"success": 0, "failure": 0})
+            summary["success"] += 1
+            branch_summaries[branch_name] = summary
+
+        except Exception as e:
+            db.rollback()
+            failure += 1
+            if roll_no: failed_rolls.append(roll_no)
+            results.append(schemas.StudentImportRowResult(
+                row=i, roll_number=roll_no, name=name, branch=branch_name, status="failure", errors=[str(e)]
+            ))
+            summary = branch_summaries.get(branch_name, {"success": 0, "failure": 0})
+            summary["failure"] += 1
+            branch_summaries[branch_name] = summary
+
+    report = [
+        schemas.BranchImportSummary(branch_name=name, success_count=s["success"], failure_count=s["failure"])
+        for name, s in branch_summaries.items()
+    ]
+
+    return {
+        "total_processed": total,
+        "overall_success": success,
+        "overall_failure": failure,
+        "branch_wise_report": report,
+        "failed_roll_numbers": failed_rolls,
+        "details": results
+    }
 
 @router.post("/evaluate-promotion-eligibility", response_model=schemas.PromotionCheckResponse)
 def check_promotion_eligibility(
