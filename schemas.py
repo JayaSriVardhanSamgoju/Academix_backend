@@ -498,6 +498,28 @@ class PromotionCheckResponse(BaseModel):
     action_taken: str
     remarks: str
 
+# --- Import Schemas ---
+class StudentImportRowResult(BaseModel):
+    row: int
+    roll_number: str
+    name: str
+    branch: str
+    status: str # "success" or "failure"
+    errors: List[str] = []
+
+class BranchImportSummary(BaseModel):
+    branch_name: str
+    success_count: int
+    failure_count: int
+
+class StudentBulkImportResponse(BaseModel):
+    total_processed: int
+    overall_success: int
+    overall_failure: int
+    branch_wise_report: List[BranchImportSummary]
+    failed_roll_numbers: List[str]
+    details: List[StudentImportRowResult]
+
 # Explicitly update forward refs at the end of file
 StudentReadSimple.model_rebuild()
 StudentRead.model_rebuild()
@@ -505,3 +527,4 @@ CourseRead.model_rebuild()
 ExamRead.model_rebuild()
 FacultyRead.model_rebuild()
 SeatAllocationRead.model_rebuild()
+TimeTableEntryRead.model_rebuild()
