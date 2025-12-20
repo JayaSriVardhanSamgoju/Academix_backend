@@ -300,10 +300,8 @@ class SeatAllocationRead(BaseModel):
         from_attributes = True
 
 # Explicitly update forward refs for models that have nested self-referencing or cyclic dependencies
-StudentRead.model_rebuild()
-CourseRead.model_rebuild()
-ExamRead.model_rebuild()
-SeatAllocationRead.model_rebuild()
+# Moved to end of file to prevent definition errors
+pass
 
 # --- Club Events ---
 
@@ -494,3 +492,10 @@ class PromotionCheckResponse(BaseModel):
     current_status: str
     action_taken: str
     remarks: str
+
+# Explicitly update forward refs at the end of file
+StudentRead.model_rebuild()
+CourseRead.model_rebuild()
+ExamRead.model_rebuild()
+FacultyRead.model_rebuild()
+SeatAllocationRead.model_rebuild()
