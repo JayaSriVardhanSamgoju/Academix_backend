@@ -7,6 +7,7 @@ import uuid
 import os
 from datetime import datetime
 from pathlib import Path
+import re
 
 from db import get_db
 import models
@@ -157,7 +158,6 @@ async def bulk_upload_hall_tickets(
     """
     import zipfile
     import io
-    import re
 
     if current_user.role not in ["Admin", "Seating Manager"]:
         raise HTTPException(status_code=403, detail="Unauthorized")
@@ -184,10 +184,14 @@ async def bulk_upload_hall_tickets(
             
             report["summary"]["total_files"] += 1
             
-            # Extract Roll Number (e.g. 21CSE001_HT.pdf -> 21CSE001)
-            # Remove extension and take the first part before underscore or match pattern
+            # Extraction logic: Try to find a specific roll number pattern (e.g. 22R21A6730)
             clean_name = os.path.basename(filename)
-            roll_match = re.search(r'([0-9A-Z]+)', clean_name)
+            # Pattern for standard 10-char roll numbers (Starts with Year, contains college code)
+            roll_match = re.search(r'([0-9]{2}[A-Z][0-9]{2}[A-Z][0-9A-Z]{4})', clean_name.upper())
+            if not roll_match:
+                # Fallback to any 8-12 char alphanumeric string that contains at least one digit
+                roll_match = re.search(r'([0-9A-Z]{8,12})', clean_name.upper())
+            
             roll_no = roll_match.group(1) if roll_match else clean_name.split('.')[0]
             
             # Find student and branch
@@ -474,11 +478,21 @@ def get_exam_hall_ticket_report(
     if current_user.role not in ["Admin", "Seating Manager"]:
         raise HTTPException(status_code=403, detail="Unauthorized")
 
-    # 1. Fetch all students for this exam
-    students = db.query(models.Student).join(models.ExamStudent).filter(models.ExamStudent.exam_id == exam_id).all()
+    # 1. Fetch exam and students with relations
+    exam = db.query(models.Exams).filter(models.Exams.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="Exam not found")
+
+    students = db.query(models.Student).options(
+        joinedload(models.Student.user),
+        joinedload(models.Student.branch)
+    ).join(models.ExamStudent).filter(models.ExamStudent.exam_id == exam_id).all()
     
     # 2. Get Allocations for mapping
-    allocations = db.query(models.SeatAllocation).filter(models.SeatAllocation.exam_id == exam_id).all()
+    allocations = db.query(models.SeatAllocation).options(
+        joinedload(models.SeatAllocation.seat),
+        joinedload(models.SeatAllocation.room)
+    ).filter(models.SeatAllocation.exam_id == exam_id).all()
     alloc_map = {a.student_id: a for a in allocations}
 
     # 3. Create CSV in memory
@@ -487,6 +501,7 @@ def get_exam_hall_ticket_report(
     writer.writeheader()
 
     exam_dir = STORAGE_BASE / str(exam_id)
+    is_cloud_released = (exam.status == "HALL_TICKETS_RELEASED")
 
     for student in students:
         alloc = alloc_map.get(student.id)
@@ -497,7 +512,10 @@ def get_exam_hall_ticket_report(
         
         status = "PENDING"
         if alloc and file_exists:
-            status = "DELIVERED"
+            status = "DELIVERED (UPLOAD)"
+        elif alloc and is_cloud_released:
+            # If exam is released, they can download dynamic tickets on-the-fly
+            status = "READY (CLOUD)"
         elif alloc and not file_exists:
             status = "MISSING_FILE"
         elif not alloc:
@@ -509,7 +527,7 @@ def get_exam_hall_ticket_report(
             "Branch": student.branch.name if student.branch else "N/A",
             "Seat": alloc.seat.seat_label if (alloc and alloc.seat) else "-",
             "Room": alloc.room.name if (alloc and alloc.room) else "-",
-            "File Released": "YES" if file_exists else "NO",
+            "File Released": "YES" if (file_exists or is_cloud_released) else "NO",
             "Status": status
         })
 
